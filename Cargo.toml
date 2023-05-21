@@ -1,0 +1,19 @@
+[package]
+name = "bletroller"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+panic-halt = "0.2.0"
+usb-device = "0.2.9"
+usbd-serial = "0.1.1"
+embedded-hal = "0.2.5"
+rp2040-hal = "0.8.0" 
+critical-section = "1.0"
+# BSP: I am using the waveshare pico
+waveshare-rp2040-zero = "0.6"
+# for neopixel support (TODO: convert https://github.com/bigjosh/SimpleNeoPixelDemo/blob/master/SimpleNeopixelDemo/SimpleNeopixelDemo.ino)
+smart-leds = "0.3"
+ws2812-pio = "0.6"
