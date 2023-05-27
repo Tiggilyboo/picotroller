@@ -1,19 +1,34 @@
 [package]
-name = "bletroller"
+name = "picotroller"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-panic-halt = "0.2.0"
-usb-device = "0.2.9"
-usbd-serial = "0.1.1"
-embedded-hal = "0.2.5"
-rp2040-hal = "0.8.0" 
+panic-halt = "0.2"
+embedded-hal = "0.2"
+rp2040-hal = { version = "0.8", features = ["defmt"] } 
 critical-section = "1.0"
-# BSP: I am using the waveshare pico
+# BSP: I am using the Waveshare RP 2040 Zero
 waveshare-rp2040-zero = "0.6"
 # for neopixel support (TODO: convert https://github.com/bigjosh/SimpleNeoPixelDemo/blob/master/SimpleNeopixelDemo/SimpleNeopixelDemo.ino)
 smart-leds = "0.3"
 ws2812-pio = "0.6"
+# for USB HID & serial
+usb-device = "0.2"
+usbd-serial = "0.1"
+usbd-human-interface-device = { version = "0.4.2", features = ["defmt"] }
+fugit = "0.3"
+serde = { version = "1.0", default-features = false, features = ["derive"]}
+packed_struct = { version = "0.10", default-features = false }
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 3

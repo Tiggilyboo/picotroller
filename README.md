@@ -1,34 +1,44 @@
-# PineNut/PineCone Rust Template
+# Picotroller
 
-A simple project as a template for creating rust applications for the Pine64 "Pinenut" BL602 Wifi/Bluetooth SoC.
-PineNut Devkits with included USB-C interface are also known as "PineCones".
+A Raspberry Pi Pico 2040 USB gaming controller.
 
-Thanks to all the existing documentation and repos of other rust projects used in the basis of this.
+## Board Support / Requirements
 
-## Installation
+This repository is currently written to use the [Waveshare RF2040 Zero](https://www.waveshare.com/wiki/RP2040-Zero) board. But can be altered to use any RP 2040 board with some modifications to Cargo.toml and associated pinouts.
 
-Install rust and cargo with [rustup](https://rustup.rs/ )
+### Features
 
-Install other dependencies;
+1. 2x [Analog Joystick](https://components101.com/modules/joystick-module) with push button
+2. 4x Cherry MX keyboard switches used as controller buttons
+
+### Pinout
+
+![Waveshare RP2040 Zero](https://www.waveshare.com/w/upload/2/2b/RP2040-Zero-details-7.jpg)
+
+- GP8 (Pull Up Input Mode) -> Right Joystick Button
+- GP14 (Pull Up Input Mode) -> Left Joystick Button
+- GP16 (NeoPixel) -> LED
+- GP26 (ADC0) -> Left Joystick VRX
+- GP27 (ADC1) -> Left Joystick VRY
+- GP28 (ADC2) -> Right Joystick VRX
+- GP29 (ADC2) -> Right Joystick VRY
+
+## Getting Started
+
+There's a bash script which builds and flashes the firmware to USB, ensure the board is in boot mode by holding the BOOT button as it is powered on.
+It's not pretty and uses `udiskctl`, if you don't have this, skip to the next section:
+
+```sh
+./build_flash.sh
 ```
-rustup install nightly-2022-12-25
-rustup component add llvm-tools-preview --toolchain nightly-2022-12-25
-rustup target add riscv32imac-unknown-none-elf
 
-cargo install cargo-binutils
-cargo install --git https://github.com/spacemeowx2/blflash cargo-blflash
+*Manual Way*
+Ensure the board is in BOOT mode and is mounted to the filesystem, then run:
+
+```sh
+cargo run
 ```
 
-These commands add the required toolchain targets along with binary flashing for easy development (No need for GUIs anymore 😉).
+## Alternatives
 
-## Building and Flashing
-
-For a simple compilation which will create a `bl602-template.bin` file ready for flashing
-```bash
-cargo objcopy --release -- -O binary bl602-template.bin
-```
-
-The preferred method is to use `blflash` directly with cargo. (I recommend picking a baudrate across all projects and sticking to it)
-```bash
-cargo blflash --release --initial-baud-rate 1000000 --baud-rate 1000000 --port COM3
-```
+1. [GP2040-CE](https://github.com/OpenStickCommunity/GP2040-CE)
