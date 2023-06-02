@@ -15,17 +15,21 @@ use defmt::{
 pub const JOYSTICK_DESCRIPTOR: &[u8] = &[
     0x05, 0x01, // Usage Page (Generic Desktop)         5,   1
     0x09, 0x04, // Usage (Joystick)                     9,   4
+
     0xa1, 0x01, // Collection (Application)             161, 1
     0x09, 0x01, //   Usage Page (Pointer)               9,   1
     0xa1, 0x00, //   Collection (Physical)              161, 0
-    0x09, 0x30, //     Usage (X)                        9,   48
-    0x09, 0x31, //     Usage (Y)                        9,   49
-    0x15, 0x81, //     Logical Minimum (-127)           21,  129
+    0x09, 0x30, //     Usage (X)
+    0x09, 0x31, //     Usage (Y)
+    0x09, 0x32, //     Usage (X) - Second joystick
+    0x09, 0x33, //     Usage (Y) - Second joystick
+    0x15, 0x80, //     Logical Minimum (-127)           21,  -128
     0x25, 0x7f, //     Logical Maximum (127)            37,  127
     0x75, 0x08, //     Report Size (8)                  117, 8
-    0x95, 0x04, //     Report count (4)                 149, 4,
+    0x95, 0x04, //     Report count (2)                 149, 4,
     0x81, 0x02, //     Input (Data, Variable, Absolute) 129, 2,
     0xc0,       //   End Collection                     192,
+
     0x05, 0x09, //   Usage Page (Button)                5,   9,
     0x19, 0x01, //   Usage Minimum (0)                  25,  1,
     0x29, 0x08, //   Usage Maximum (8)                  41,  8,
