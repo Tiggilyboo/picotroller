@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 use crate::device::JoystickReport;
 
-const ADC_MAX_VALUE_3V3: u16 = 4095;
+const ADC_MAX_VALUE_3V3: i32 = 4095;
 
 #[derive(Debug)]
 pub struct JoyState {
@@ -35,22 +35,54 @@ impl Default for Controller {
     }
 }
 
+#[allow(unused)]
+mod buttons {
+    pub const BTN_SOUTH: u16 = 1 << 0;
+    pub const BTN_EAST: u16 = 1 << 1;
+    pub const BTN_C: u16 = 1 << 2;
+    pub const BTN_NORTH: u16 = 1 << 3;
+    pub const BTN_WEST: u16 = 1 << 4;
+    pub const BTN_Z: u16 = 1 << 5;
+    pub const BTN_TL: u16 = 1 << 6;
+    pub const BTN_TR: u16 = 1 << 7;
+    pub const BTN_TL2: u16 = 1 << 8;
+    pub const BTN_TR2: u16 = 1 << 9;
+    pub const BTN_SELECT: u16 = 1 << 10;
+    pub const BTN_START: u16 = 1 << 11;
+    pub const BTN_MODE: u16 = 1 << 12;
+    pub const BTN_THUMBL: u16 = 1 << 13;
+    pub const BTN_THUMBR: u16 = 1 << 14;
+}
+
 impl Controller {
+    #[inline]
     pub fn hid_report(&self, report: &mut JoystickReport) {
-        report.lx = scale_i8(self.joy_l.x, ADC_MAX_VALUE_3V3);
-        report.ly = scale_i8(self.joy_l.y, ADC_MAX_VALUE_3V3);
-        report.rx = scale_i8(self.joy_r.x, ADC_MAX_VALUE_3V3);
-        report.ry = scale_i8(self.joy_r.y, ADC_MAX_VALUE_3V3);
-        report.buttons = 0b0000_0000;
+        report.lx = scale_i8(self.joy_l.x);
+        report.ly = scale_i8(self.joy_l.y);
+        report.rx = scale_i8(self.joy_r.x);
+        report.ry = scale_i8(self.joy_r.y);
+
+        report.buttons = 0;
         if self.joy_l.button {
-            report.buttons |= 0b0000_0010;
+            report.buttons |= buttons::BTN_THUMBL;
         }
         if self.joy_r.button {
-            report.buttons |= 0b0000_0001;
+            report.buttons |= buttons::BTN_THUMBR;
         }
     }
 }
 
-fn scale_i8(value: u16, max: u16) -> i8 {
-    (128f32 - ((value as f32 / max as f32) * 255.0f32)) as i8
+/*
+#[inline]
+fn scale_i16(value: u16) -> i16 {
+    let scaled_value = (value as i32 * 65535) / ADC_MAX_VALUE_3V3 as i32 - 32768;
+    scaled_value as i16
 }
+*/
+
+#[inline]
+fn scale_i8(value: u16) -> i8 {
+    let scaled_value = (value as i32 * 255) / ADC_MAX_VALUE_3V3 as i32 - 128;
+    scaled_value as i8
+}
+

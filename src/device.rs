@@ -13,48 +13,79 @@ use defmt::{
 
 #[rustfmt::skip]
 pub const JOYSTICK_DESCRIPTOR: &[u8] = &[
-    0x05, 0x01, // Usage Page (Generic Desktop)         5,   1
-    0x09, 0x04, // Usage (Joystick)                     9,   4
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x05, // Usage (Joystick)
 
-    0xa1, 0x01, // Collection (Application)             161, 1
-    0x09, 0x01, //   Usage Page (Pointer)               9,   1
-    0xa1, 0x00, //   Collection (Physical)              161, 0
-    0x09, 0x30, //     Usage (X)
-    0x09, 0x31, //     Usage (Y)
-    0x09, 0x32, //     Usage (X) - Second joystick
-    0x09, 0x33, //     Usage (Y) - Second joystick
-    0x15, 0x80, //     Logical Minimum (-127)           21,  -128
-    0x25, 0x7f, //     Logical Maximum (127)            37,  127
-    0x75, 0x08, //     Report Size (8)                  117, 8
-    0x95, 0x04, //     Report count (2)                 149, 4,
-    0x81, 0x02, //     Input (Data, Variable, Absolute) 129, 2,
-    0xc0,       //   End Collection                     192,
+    0xA1, 0x01, // Collection (Application)
+        0x09, 0x01, //   Usage Page (Pointer)
+        0xA1, 0x00, //   Collection (Physical)
+            0x09, 0x30, //     Usage (X)
+            0x09, 0x31, //     Usage (Y)
+            // 32 == Z
+            0x09, 0x33, //     Usage (RX) - Second joystick
+            0x09, 0x34, //     Usage (RY) - Second joystick
+            0x15, 0x81, //     Logical Minimum (-127)
+            0x25, 0x7f, //     Logical Maximum (127)
+            0x75, 0x08, //     Report Size
+            0x95, 0x04, //     Report count
+            0x81, 0x02, //     Input (Data, Variable, Absolute)
+        0xC0,       //   End Collection
 
-    0x05, 0x09, //   Usage Page (Button)                5,   9,
-    0x19, 0x01, //   Usage Minimum (0)                  25,  1,
-    0x29, 0x08, //   Usage Maximum (8)                  41,  8,
-    0x15, 0x00, //   Logical Minimum (0)                21,  0
-    0x25, 0x01, //   Logical Maximum (1)                37,  1,
-    0x75, 0x01, //   Report Size (1)                    117, 1,
-    0x95, 0x08, //   Report Count (8)                   149, 8
-    0x81, 0x02, //   Input (Data, Variable, Absolute)   129, 2,
-    0xc0,       // End Collection                       192
+        0x05, 0x09, //   Usage Page (Button)
+        0x19, 0x01, //   Usage Minimum (0)
+        0x29, 0x10, //   Usage Maximum (16)
+        0x15, 0x00, //   Logical Minimum (0)
+        0x25, 0x01, //   Logical Maximum (1)
+        0x75, 0x01, //   Report Size (1)
+        0x95, 0x10, //   Report Count (16)
+        0x81, 0x02, //   Input (Data, Variable, Absolute)
+    0xC0,       // End Collection
+
+    /* TODO: 16 bit joy resolution
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x04, // Usage (Joystick)
+
+    0xA1, 0x01, // Collection (Application)
+    0x09, 0x01, // Usage Pointer
+        0xA1, 0x00, // Collection (Physical)
+            0x05, 0x09, // Usage Button 
+            0x19, 0x01, // Button 0
+            0x29, 0x08, // Button 8
+            0x15, 0x00, // Logical Min 
+            0x25, 0x01, // Logical Max
+            0x95, 0x08, // Report Count
+            0x75, 0x01, // Report Size in bits
+            0x81, 0x02, // Input 
+
+            0x05, 0x01, // Usage Page
+            0x09, 0x30, //     Usage (X)
+            0x09, 0x31, //     Usage (Y)
+            0x09, 0x32, //     Usage (X) - Second joystick
+            0x09, 0x33, //     Usage (Y) - Second joystick
+            0x16, 0x80, 0x01, //     Logical Minimum (-32768)
+            0x26, 0x7F, 0xFF, //     Logical Maximum (32767)
+            0x75, 0x10, //     Report Size (16)
+            0x95, 0x04, //     Report count (4)
+            0x81, 0x02, //     Input (Data, Variable, Absolute)
+        0xC0,       //   End Collection Physical,
+    0xC0,       //   End Collection Application,
+    */
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, PackedStruct)]
 #[derive(Format)]
-#[packed_struct(endian = "lsb", size_bytes = "5")]
+#[packed_struct(endian = "lsb", size_bytes = "6")]
 pub struct JoystickReport {
-    #[packed_field]
-    pub lx: i8,
     #[packed_field]
     pub ly: i8,
     #[packed_field]
-    pub rx: i8,
+    pub lx: i8,
     #[packed_field]
     pub ry: i8,
     #[packed_field]
-    pub buttons: u8,
+    pub rx: i8,
+    #[packed_field]
+    pub buttons: u16,
 }
 
 pub struct Joystick<'a, B: UsbBus> {

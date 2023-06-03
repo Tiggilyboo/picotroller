@@ -44,6 +44,12 @@ use controller::*;
 mod device;
 use device::JoystickReport;
 
+const USB_VENDOR: u16 = 0x045e;
+const USB_PRODUCT: u16 = 0x028e;
+const USB_MANUFACTURER: &'static str = "Nameless";
+const USB_PRODUCT_NAME: &'static str = "Picotroller";
+const USB_SERIALNUM: &'static str = "CTLPICO";
+
 // Pin defs
 type LButtonPin = gpio::Pin<gpio::bank0::Gpio14, gpio::PullUpInput>;
 type RButtonPin = gpio::Pin<gpio::bank0::Gpio8, gpio::PullUpInput>;
@@ -102,10 +108,10 @@ fn main() -> ! {
         .add_device(device::JoystickConfig::default())
         .build(&usb_bus);
 
-    let mut usb_device = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dc))
-        .manufacturer("Nameless")
-        .product("Bletroller")
-        .serial_number("BLET")
+    let mut usb_device = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(USB_VENDOR, USB_PRODUCT))
+        .manufacturer(USB_MANUFACTURER)
+        .product(USB_PRODUCT_NAME)
+        .serial_number(USB_SERIALNUM)
         .device_class(2)
         .build();
     
@@ -150,9 +156,9 @@ fn main() -> ! {
     
     let mut report = JoystickReport::default();
     let mut last_report = JoystickReport::default();
-    loop {
-        led.write(brightness(core::iter::once(colors::RED), 6)).unwrap();
 
+    loop {
+        led.write(brightness(core::iter::once(colors::DARK_ORANGE), 6)).unwrap();
         // READ STATE
         controller.joy_l.button = critical_section::with(|cs| *L_JOY_BUTTON.borrow(cs).borrow());
         controller.joy_l.x = adc.read(&mut l_joy_x_pin).unwrap();
@@ -165,17 +171,21 @@ fn main() -> ! {
             controller.hid_report(&mut report);
             if last_report != report {
                 match joy_hid.device().write_report(&report) {
-                    Err(UsbHidError::WouldBlock) => {},
-                    Err(e) => core::panic!("Failed to write joystick report: {:?}", e),
-                    Ok(_) => {}
+                    Err(UsbHidError::WouldBlock) => {
+                    },
+                    Err(e) => {
+                        led.write(brightness(core::iter::once(colors::RED), 12)).unwrap();
+                        core::panic!("Failed to write joystick report: {:?}", e)
+                    },
+                    Ok(_) => {
+                    }
                 }
             }
             last_report = report;
         }
 
-        //if usb_device.poll(&mut [&mut serial, &mut joy_hid]) {
         if usb_device.poll(&mut [&mut joy_hid]) {
-        }
+        };
         led.write(brightness(core::iter::once(colors::GREEN), 12)).unwrap();
     }
 }
