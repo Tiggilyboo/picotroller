@@ -14,20 +14,21 @@ use defmt::{
 #[rustfmt::skip]
 pub const JOYSTICK_DESCRIPTOR: &[u8] = &[
     0x05, 0x01, // Usage Page (Generic Desktop)
-    0x09, 0x05, // Usage (Joystick)
+    0x09, 0x05, // Usage (Gamepad 0x05, Joystick 0x04)
 
     0xA1, 0x01, // Collection (Application)
         0x09, 0x01, //   Usage Page (Pointer)
         0xA1, 0x00, //   Collection (Physical)
             0x09, 0x30, //     Usage (X)
             0x09, 0x31, //     Usage (Y)
-            // 32 == Z
+            0x09, 0x32, //     Usage (Z) Trigger (Not used)
             0x09, 0x33, //     Usage (RX) - Second joystick
             0x09, 0x34, //     Usage (RY) - Second joystick
+            0x09, 0x35, //     Usage (RZ) Trigger (Not used)
             0x15, 0x81, //     Logical Minimum (-127)
             0x25, 0x7f, //     Logical Maximum (127)
             0x75, 0x08, //     Report Size
-            0x95, 0x04, //     Report count
+            0x95, 0x06, //     Report count
             0x81, 0x02, //     Input (Data, Variable, Absolute)
         0xC0,       //   End Collection
 
@@ -74,16 +75,20 @@ pub const JOYSTICK_DESCRIPTOR: &[u8] = &[
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default, PackedStruct)]
 #[derive(Format)]
-#[packed_struct(endian = "lsb", size_bytes = "6")]
+#[packed_struct(endian = "lsb", size_bytes = "8")]
 pub struct JoystickReport {
     #[packed_field]
     pub ly: i8,
     #[packed_field]
     pub lx: i8,
     #[packed_field]
+    pub lz: i8,
+    #[packed_field]
     pub ry: i8,
     #[packed_field]
     pub rx: i8,
+    #[packed_field]
+    pub rz: i8,
     #[packed_field]
     pub buttons: u16,
 }

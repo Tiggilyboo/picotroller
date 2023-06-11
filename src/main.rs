@@ -50,15 +50,21 @@ const USB_MANUFACTURER: &'static str = "Nameless";
 const USB_PRODUCT_NAME: &'static str = "Picotroller";
 const USB_SERIALNUM: &'static str = "CTLPICO";
 
-// Pin defs
-type LButtonPin = gpio::Pin<gpio::bank0::Gpio14, gpio::PullUpInput>;
-type RButtonPin = gpio::Pin<gpio::bank0::Gpio8, gpio::PullUpInput>;
-static L_BUTTON_PIN: Mutex<RefCell<Option<LButtonPin>>> = Mutex::new(RefCell::new(None));
-static R_BUTTON_PIN: Mutex<RefCell<Option<RButtonPin>>> = Mutex::new(RefCell::new(None));
+type ButtonPinThumbL = gpio::Pin<gpio::bank0::Gpio14, gpio::PullUpInput>;
+type ButtonPinThumbR = gpio::Pin<gpio::bank0::Gpio8, gpio::PullUpInput>;
+type ButtonPinTriggerL = gpio::Pin<gpio::bank0::Gpio13, gpio::PullDownInput>;
+type ButtonPinTriggerR = gpio::Pin<gpio::bank0::Gpio9, gpio::PullDownInput>;
 
-// Static states
-static L_JOY_BUTTON: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
-static R_JOY_BUTTON: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_PIN_THUMB_L: Mutex<RefCell<Option<ButtonPinThumbL>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_THUMB_R: Mutex<RefCell<Option<ButtonPinThumbR>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_TRIGGER_L: Mutex<RefCell<Option<ButtonPinTriggerL>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_TRIGGER_R: Mutex<RefCell<Option<ButtonPinTriggerR>>> = Mutex::new(RefCell::new(None));
+
+// state
+static BUTTON_THUMB_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_THUMB_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_TRIGGER_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_TRIGGER_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
 
 #[entry]
 fn main() -> ! {
@@ -115,8 +121,6 @@ fn main() -> ! {
         .device_class(2)
         .build();
     
-    // let mut serial = SerialPort::new(&usb_bus);
-    //serial.write(b"Started.\n").unwrap();
     led.write(brightness(core::iter::once(colors::RED), 6)).unwrap();
 
     // Setup joystick button interrupt pins
@@ -124,13 +128,25 @@ fn main() -> ! {
         let l_joy_btn_pin = pins.gp14.into_mode();
         l_joy_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
         l_joy_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
-        critical_section::with(|cs| L_BUTTON_PIN.borrow(cs).replace(Some(l_joy_btn_pin)));
+        critical_section::with(|cs| BUTTON_PIN_THUMB_L.borrow(cs).replace(Some(l_joy_btn_pin)));
     }
     {
         let r_joy_btn_pin = pins.gp8.into_mode();
         r_joy_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
         r_joy_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
-        critical_section::with(|cs| R_BUTTON_PIN.borrow(cs).replace(Some(r_joy_btn_pin)));
+        critical_section::with(|cs| BUTTON_PIN_THUMB_R.borrow(cs).replace(Some(r_joy_btn_pin)));
+    }
+    {
+        let l_trig_btn_pin = pins.gp13.into_mode();
+        l_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        l_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_TRIGGER_L.borrow(cs).replace(Some(l_trig_btn_pin)));
+    }
+    {
+        let r_trig_btn_pin = pins.gp9.into_mode();
+        r_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        r_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_TRIGGER_R.borrow(cs).replace(Some(r_trig_btn_pin)));
     }
     
     // Setup adc for joystick x / y
@@ -139,6 +155,8 @@ fn main() -> ! {
     let mut l_joy_y_pin = pins.gp27.into_floating_input();
     let mut r_joy_x_pin = pins.gp28.into_floating_input();
     let mut r_joy_y_pin = pins.gp29.into_floating_input();
+    
+    let mut controller = Controller::default();
 
     // Allow interrupts last, in case something is not set up fully and IRQ fires
     unsafe {
@@ -146,79 +164,121 @@ fn main() -> ! {
     }
 
     // SETUP COMPLETE
-
-    let mut controller = Controller::default();
         
-    led.write(brightness(core::iter::once(colors::GREEN), 12)).unwrap();
-
     let mut joy_timer = timer.count_down();
     joy_timer.start(10.millis());
     
     let mut report = JoystickReport::default();
     let mut last_report = JoystickReport::default();
+    
+    let mut led_colour = colors::GREEN;
+    let mut next_led_colour = led_colour;
+
+    led.write(brightness(core::iter::once(led_colour), 12)).unwrap();
 
     loop {
-        led.write(brightness(core::iter::once(colors::DARK_ORANGE), 6)).unwrap();
-        // READ STATE
-        controller.joy_l.button = critical_section::with(|cs| *L_JOY_BUTTON.borrow(cs).borrow());
-        controller.joy_l.x = adc.read(&mut l_joy_x_pin).unwrap();
-        controller.joy_l.y = adc.read(&mut l_joy_y_pin).unwrap();
-        controller.joy_r.button = critical_section::with(|cs| *R_JOY_BUTTON.borrow(cs).borrow());
-        controller.joy_r.x = adc.read(&mut r_joy_x_pin).unwrap();
-        controller.joy_r.y = adc.read(&mut r_joy_y_pin).unwrap();
-
         if joy_timer.wait().is_ok() {
+            // READ STATE
+            controller.joy_l.button = critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow());
+            controller.joy_r.button = critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow());
+            controller.trigger_l = critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow());
+            controller.trigger_r = critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow());
+            controller.joy_l.x = adc.read(&mut l_joy_x_pin).unwrap();
+            controller.joy_l.y = adc.read(&mut l_joy_y_pin).unwrap();
+            controller.joy_r.x = adc.read(&mut r_joy_x_pin).unwrap();
+            controller.joy_r.y = adc.read(&mut r_joy_y_pin).unwrap();
+
             controller.hid_report(&mut report);
+
             if last_report != report {
                 match joy_hid.device().write_report(&report) {
                     Err(UsbHidError::WouldBlock) => {
+                        next_led_colour = colors::DARK_CYAN;
                     },
-                    Err(e) => {
-                        led.write(brightness(core::iter::once(colors::RED), 12)).unwrap();
-                        core::panic!("Failed to write joystick report: {:?}", e)
+                    Err(_e) => {
+                        next_led_colour = colors::RED;
+                        //core::panic!("Unable to write hid report: {:?}", e)
                     },
                     Ok(_) => {
+                        next_led_colour = colors::GREEN;
                     }
                 }
             }
             last_report = report;
+        } else {
+            next_led_colour = colors::GREEN;
         }
 
-        if usb_device.poll(&mut [&mut joy_hid]) {
-        };
-        led.write(brightness(core::iter::once(colors::GREEN), 12)).unwrap();
+        if !usb_device.poll(&mut [&mut joy_hid]) {
+            next_led_colour = colors::ORANGE;
+        }
+        if next_led_colour != led_colour {
+            led.write(brightness(core::iter::once(next_led_colour), 12)).unwrap();
+            led_colour = next_led_colour;
+        }
     }
 }
 
 #[interrupt]
 fn IO_IRQ_BANK0() {
-    static mut L_BUTTON: Option<LButtonPin> = None;
-    static mut R_BUTTON: Option<RButtonPin> = None;
+    static mut L_THUMB_BUTTON_PIN: Option<ButtonPinThumbL> = None;
+    static mut R_THUMB_BUTTON_PIN: Option<ButtonPinThumbR> = None;
 
-    if L_BUTTON.is_none() {
-        critical_section::with(|cs| *L_BUTTON = L_BUTTON_PIN.borrow(cs).take());
+    static mut L_TRIGGER_BUTTON_PIN: Option<ButtonPinTriggerL> = None;
+    static mut R_TRIGGER_BUTTON_PIN: Option<ButtonPinTriggerR> = None;
+
+    if L_THUMB_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *L_THUMB_BUTTON_PIN = BUTTON_PIN_THUMB_L.borrow(cs).take());
     }
-    if let Some(pin) = L_BUTTON {
+    if let Some(pin) = L_THUMB_BUTTON_PIN {
         if pin.interrupt_status(Interrupt::EdgeLow) {
-            critical_section::with(|cs| *L_JOY_BUTTON.borrow(cs).borrow_mut() = true);
+            critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeLow);
         }
         else if pin.interrupt_status(Interrupt::EdgeHigh) {
-            critical_section::with(|cs| *L_JOY_BUTTON.borrow(cs).borrow_mut() = false);
+            critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow_mut() = false);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
     }
 
-    if R_BUTTON.is_none() {
-        critical_section::with(|cs| *R_BUTTON = R_BUTTON_PIN.borrow(cs).take());
+    if R_THUMB_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *R_THUMB_BUTTON_PIN = BUTTON_PIN_THUMB_R.borrow(cs).take());
     }
-    if let Some(pin) = R_BUTTON {
+    if let Some(pin) = R_THUMB_BUTTON_PIN {
         if pin.interrupt_status(Interrupt::EdgeLow) {
-            critical_section::with(|cs| *R_JOY_BUTTON.borrow(cs).borrow_mut() = true);
+            critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeLow);
         }
         else if pin.interrupt_status(Interrupt::EdgeHigh) {
-            critical_section::with(|cs| *R_JOY_BUTTON.borrow(cs).borrow_mut() = false);
+            critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
+        }
+    }
+    
+    if L_TRIGGER_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *L_TRIGGER_BUTTON_PIN = BUTTON_PIN_TRIGGER_L.borrow(cs).take());
+    }
+    if let Some(pin) = L_TRIGGER_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        }
+        else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow_mut() = true);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
+        }
+    }
+    
+    if R_TRIGGER_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *R_TRIGGER_BUTTON_PIN = BUTTON_PIN_TRIGGER_R.borrow(cs).take());
+    }
+    if let Some(pin) = R_TRIGGER_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        }
+        else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
     }
