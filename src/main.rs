@@ -5,38 +5,24 @@ use defmt_rtt as _;
 
 use core::cell::RefCell;
 
+use bsp::hal;
+use bsp::{entry, Pins};
 use cortex_m::prelude::{_embedded_hal_adc_OneShot, _embedded_hal_timer_CountDown};
 use critical_section::Mutex;
+use fugit::ExtU32;
+use hal::{
+    clocks::init_clocks_and_plls, clocks::Clock, gpio, gpio::Interrupt, pac, pac::interrupt,
+    pio::PIOExt, timer::Timer, watchdog::Watchdog, Sio,
+};
 use panic_halt as _;
 use smart_leds::colors;
+use smart_leds::{brightness, SmartLedsWrite};
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
-use usbd_human_interface_device::UsbHidError;
 use usbd_human_interface_device::usb_class::UsbHidClassBuilder;
-use fugit::ExtU32;
-use smart_leds::{
-    brightness, 
-    SmartLedsWrite,
-};
-use ws2812_pio::Ws2812;
+use usbd_human_interface_device::UsbHidError;
 use waveshare_rp2040_zero as bsp;
-use bsp::{
-    entry,
-    Pins, 
-};
-use bsp::hal as hal;
-use hal::{
-    clocks::init_clocks_and_plls,
-    clocks::Clock,
-    pac,
-    pac::interrupt,
-    gpio::Interrupt,
-    watchdog::Watchdog,
-    Sio,
-    pio::PIOExt,
-    timer::Timer,
-    gpio,
-};
+use ws2812_pio::Ws2812;
 
 mod controller;
 use controller::*;
@@ -52,19 +38,31 @@ const USB_SERIALNUM: &'static str = "CTLPICO";
 
 type ButtonPinThumbL = gpio::Pin<gpio::bank0::Gpio14, gpio::PullUpInput>;
 type ButtonPinThumbR = gpio::Pin<gpio::bank0::Gpio8, gpio::PullUpInput>;
-type ButtonPinTriggerL = gpio::Pin<gpio::bank0::Gpio13, gpio::PullDownInput>;
-type ButtonPinTriggerR = gpio::Pin<gpio::bank0::Gpio9, gpio::PullDownInput>;
+type ButtonPinUnderL = gpio::Pin<gpio::bank0::Gpio13, gpio::PullDownInput>;
+type ButtonPinUnderR = gpio::Pin<gpio::bank0::Gpio9, gpio::PullDownInput>;
+type ButtonPinFrontL = gpio::Pin<gpio::bank0::Gpio10, gpio::PullDownInput>;
+type ButtonPinFrontR = gpio::Pin<gpio::bank0::Gpio11, gpio::PullDownInput>;
+type ButtonPinStart = gpio::Pin<gpio::bank0::Gpio12, gpio::PullDownInput>;
+type ButtonPinSelect = gpio::Pin<gpio::bank0::Gpio7, gpio::PullDownInput>;
 
 static BUTTON_PIN_THUMB_L: Mutex<RefCell<Option<ButtonPinThumbL>>> = Mutex::new(RefCell::new(None));
 static BUTTON_PIN_THUMB_R: Mutex<RefCell<Option<ButtonPinThumbR>>> = Mutex::new(RefCell::new(None));
-static BUTTON_PIN_TRIGGER_L: Mutex<RefCell<Option<ButtonPinTriggerL>>> = Mutex::new(RefCell::new(None));
-static BUTTON_PIN_TRIGGER_R: Mutex<RefCell<Option<ButtonPinTriggerR>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_UNDER_L: Mutex<RefCell<Option<ButtonPinUnderL>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_UNDER_R: Mutex<RefCell<Option<ButtonPinUnderR>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_FRONT_L: Mutex<RefCell<Option<ButtonPinFrontL>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_FRONT_R: Mutex<RefCell<Option<ButtonPinFrontR>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_START: Mutex<RefCell<Option<ButtonPinStart>>> = Mutex::new(RefCell::new(None));
+static BUTTON_PIN_SELECT: Mutex<RefCell<Option<ButtonPinSelect>>> = Mutex::new(RefCell::new(None));
 
 // state
 static BUTTON_THUMB_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
 static BUTTON_THUMB_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
-static BUTTON_TRIGGER_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
-static BUTTON_TRIGGER_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_UNDER_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_UNDER_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_FRONT_L: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_FRONT_R: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_START: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
+static BUTTON_SELECT: Mutex<RefCell<bool>> = Mutex::new(RefCell::new(false));
 
 #[entry]
 fn main() -> ! {
@@ -99,7 +97,8 @@ fn main() -> ! {
         clocks.peripheral_clock.freq(),
         timer.count_down(),
     );
-    led.write(brightness(core::iter::once(colors::RED), 8)).unwrap();
+    led.write(brightness(core::iter::once(colors::RED), 8))
+        .unwrap();
 
     // START SETUP
 
@@ -120,8 +119,9 @@ fn main() -> ! {
         .serial_number(USB_SERIALNUM)
         .device_class(2)
         .build();
-    
-    led.write(brightness(core::iter::once(colors::RED), 6)).unwrap();
+
+    led.write(brightness(core::iter::once(colors::RED), 6))
+        .unwrap();
 
     // Setup joystick button interrupt pins
     {
@@ -136,26 +136,51 @@ fn main() -> ! {
         r_joy_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
         critical_section::with(|cs| BUTTON_PIN_THUMB_R.borrow(cs).replace(Some(r_joy_btn_pin)));
     }
+    // Setup under / front button interrupt pins
     {
-        let l_trig_btn_pin = pins.gp13.into_mode();
-        l_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
-        l_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
-        critical_section::with(|cs| BUTTON_PIN_TRIGGER_L.borrow(cs).replace(Some(l_trig_btn_pin)));
+        let l_under_btn_pin = pins.gp13.into_mode();
+        l_under_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        l_under_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_UNDER_L.borrow(cs).replace(Some(l_under_btn_pin)));
     }
     {
-        let r_trig_btn_pin = pins.gp9.into_mode();
-        r_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
-        r_trig_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
-        critical_section::with(|cs| BUTTON_PIN_TRIGGER_R.borrow(cs).replace(Some(r_trig_btn_pin)));
+        let r_under_btn_pin = pins.gp9.into_mode();
+        r_under_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        r_under_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_UNDER_R.borrow(cs).replace(Some(r_under_btn_pin)));
     }
-    
+    {
+        let l_front_btn_pin = pins.gp10.into_mode();
+        l_front_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        l_front_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_FRONT_L.borrow(cs).replace(Some(l_front_btn_pin)));
+    }
+    {
+        let r_front_btn_pin = pins.gp11.into_mode();
+        r_front_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        r_front_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_FRONT_R.borrow(cs).replace(Some(r_front_btn_pin)));
+    }
+    {
+        let start_btn_pin = pins.gp12.into_mode();
+        start_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        start_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_START.borrow(cs).replace(Some(start_btn_pin)));
+    }
+    {
+        let select_btn_pin = pins.gp7.into_mode();
+        select_btn_pin.set_interrupt_enabled(Interrupt::EdgeLow, true);
+        select_btn_pin.set_interrupt_enabled(Interrupt::EdgeHigh, true);
+        critical_section::with(|cs| BUTTON_PIN_SELECT.borrow(cs).replace(Some(select_btn_pin)));
+    }
+
     // Setup adc for joystick x / y
     let mut adc = hal::adc::Adc::new(pac.ADC, &mut pac.RESETS);
     let mut l_joy_x_pin = pins.gp26.into_floating_input();
     let mut l_joy_y_pin = pins.gp27.into_floating_input();
     let mut r_joy_x_pin = pins.gp28.into_floating_input();
     let mut r_joy_y_pin = pins.gp29.into_floating_input();
-    
+
     let mut controller = Controller::default();
 
     // Allow interrupts last, in case something is not set up fully and IRQ fires
@@ -164,25 +189,30 @@ fn main() -> ! {
     }
 
     // SETUP COMPLETE
-        
+
     let mut joy_timer = timer.count_down();
     joy_timer.start(10.millis());
-    
+
     let mut report = JoystickReport::default();
     let mut last_report = JoystickReport::default();
-    
+
     let mut led_colour = colors::GREEN;
     let mut next_led_colour = led_colour;
 
-    led.write(brightness(core::iter::once(led_colour), 12)).unwrap();
+    led.write(brightness(core::iter::once(led_colour), 12))
+        .unwrap();
 
     loop {
         if joy_timer.wait().is_ok() {
             // READ STATE
-            controller.joy_l.button = critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow());
-            controller.joy_r.button = critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow());
-            controller.trigger_l = critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow());
-            controller.trigger_r = critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow());
+            controller.joy_l.button =
+                critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow());
+            controller.joy_r.button =
+                critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow());
+            controller.under_l = critical_section::with(|cs| *BUTTON_UNDER_L.borrow(cs).borrow());
+            controller.under_r = critical_section::with(|cs| *BUTTON_UNDER_R.borrow(cs).borrow());
+            controller.front_l = critical_section::with(|cs| *BUTTON_FRONT_L.borrow(cs).borrow());
+            controller.front_r = critical_section::with(|cs| *BUTTON_FRONT_R.borrow(cs).borrow());
             controller.joy_l.x = adc.read(&mut l_joy_x_pin).unwrap();
             controller.joy_l.y = adc.read(&mut l_joy_y_pin).unwrap();
             controller.joy_r.x = adc.read(&mut r_joy_x_pin).unwrap();
@@ -194,14 +224,14 @@ fn main() -> ! {
                 match joy_hid.device().write_report(&report) {
                     Err(UsbHidError::WouldBlock) => {
                         next_led_colour = colors::DARK_CYAN;
-                    },
+                    }
                     Err(_e) => {
                         next_led_colour = colors::RED;
                         //core::panic!("Unable to write hid report: {:?}", e)
-                    },
+                    }
                     Ok(_) => {
                         next_led_colour = colors::GREEN;
-                    }
+                    } // Setup under / front button interrupt pins
                 }
             }
             last_report = report;
@@ -211,9 +241,17 @@ fn main() -> ! {
 
         if !usb_device.poll(&mut [&mut joy_hid]) {
             next_led_colour = colors::ORANGE;
+            led.write(brightness(core::iter::once(next_led_colour), 12))
+                .unwrap();
+            led_colour = next_led_colour;
+        }
+
+        if !usb_device.poll(&mut [&mut joy_hid]) {
+            next_led_colour = colors::ORANGE;
         }
         if next_led_colour != led_colour {
-            led.write(brightness(core::iter::once(next_led_colour), 12)).unwrap();
+            led.write(brightness(core::iter::once(next_led_colour), 12))
+                .unwrap();
             led_colour = next_led_colour;
         }
     }
@@ -224,8 +262,14 @@ fn IO_IRQ_BANK0() {
     static mut L_THUMB_BUTTON_PIN: Option<ButtonPinThumbL> = None;
     static mut R_THUMB_BUTTON_PIN: Option<ButtonPinThumbR> = None;
 
-    static mut L_TRIGGER_BUTTON_PIN: Option<ButtonPinTriggerL> = None;
-    static mut R_TRIGGER_BUTTON_PIN: Option<ButtonPinTriggerR> = None;
+    static mut L_UNDER_BUTTON_PIN: Option<ButtonPinUnderL> = None;
+    static mut R_UNDER_BUTTON_PIN: Option<ButtonPinUnderR> = None;
+
+    static mut L_FRONT_BUTTON_PIN: Option<ButtonPinFrontL> = None;
+    static mut R_FRONT_BUTTON_PIN: Option<ButtonPinFrontR> = None;
+
+    static mut START_BUTTON_PIN: Option<ButtonPinStart> = None;
+    static mut SELECT_BUTTON_PIN: Option<ButtonPinSelect> = None;
 
     if L_THUMB_BUTTON_PIN.is_none() {
         critical_section::with(|cs| *L_THUMB_BUTTON_PIN = BUTTON_PIN_THUMB_L.borrow(cs).take());
@@ -234,8 +278,7 @@ fn IO_IRQ_BANK0() {
         if pin.interrupt_status(Interrupt::EdgeLow) {
             critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeLow);
-        }
-        else if pin.interrupt_status(Interrupt::EdgeHigh) {
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
             critical_section::with(|cs| *BUTTON_THUMB_L.borrow(cs).borrow_mut() = false);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
@@ -248,39 +291,86 @@ fn IO_IRQ_BANK0() {
         if pin.interrupt_status(Interrupt::EdgeLow) {
             critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeLow);
-        }
-        else if pin.interrupt_status(Interrupt::EdgeHigh) {
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
             critical_section::with(|cs| *BUTTON_THUMB_R.borrow(cs).borrow_mut() = false);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
     }
-    
-    if L_TRIGGER_BUTTON_PIN.is_none() {
-        critical_section::with(|cs| *L_TRIGGER_BUTTON_PIN = BUTTON_PIN_TRIGGER_L.borrow(cs).take());
+
+    if L_UNDER_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *L_UNDER_BUTTON_PIN = BUTTON_PIN_UNDER_L.borrow(cs).take());
     }
-    if let Some(pin) = L_TRIGGER_BUTTON_PIN {
+    if let Some(pin) = L_UNDER_BUTTON_PIN {
         if pin.interrupt_status(Interrupt::EdgeLow) {
-            critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow_mut() = false);
+            critical_section::with(|cs| *BUTTON_UNDER_L.borrow(cs).borrow_mut() = false);
             pin.clear_interrupt(Interrupt::EdgeLow);
-        }
-        else if pin.interrupt_status(Interrupt::EdgeHigh) {
-            critical_section::with(|cs| *BUTTON_TRIGGER_L.borrow(cs).borrow_mut() = true);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_UNDER_L.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
     }
-    
-    if R_TRIGGER_BUTTON_PIN.is_none() {
-        critical_section::with(|cs| *R_TRIGGER_BUTTON_PIN = BUTTON_PIN_TRIGGER_R.borrow(cs).take());
+
+    if R_UNDER_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *R_UNDER_BUTTON_PIN = BUTTON_PIN_UNDER_R.borrow(cs).take());
     }
-    if let Some(pin) = R_TRIGGER_BUTTON_PIN {
+    if let Some(pin) = R_UNDER_BUTTON_PIN {
         if pin.interrupt_status(Interrupt::EdgeLow) {
-            critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow_mut() = false);
+            critical_section::with(|cs| *BUTTON_UNDER_R.borrow(cs).borrow_mut() = false);
             pin.clear_interrupt(Interrupt::EdgeLow);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_UNDER_R.borrow(cs).borrow_mut() = true);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
         }
-        else if pin.interrupt_status(Interrupt::EdgeHigh) {
-            critical_section::with(|cs| *BUTTON_TRIGGER_R.borrow(cs).borrow_mut() = true);
+    }
+
+    if L_FRONT_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *L_FRONT_BUTTON_PIN = BUTTON_PIN_FRONT_L.borrow(cs).take());
+    }
+    if let Some(pin) = L_FRONT_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_FRONT_L.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_FRONT_L.borrow(cs).borrow_mut() = true);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
+        }
+    }
+
+    if R_FRONT_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *R_FRONT_BUTTON_PIN = BUTTON_PIN_FRONT_R.borrow(cs).take());
+    }
+    if let Some(pin) = R_FRONT_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_FRONT_R.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_FRONT_R.borrow(cs).borrow_mut() = true);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
+        }
+    }
+    if START_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *START_BUTTON_PIN = BUTTON_PIN_START.borrow(cs).take());
+    }
+    if let Some(pin) = START_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_START.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_START.borrow(cs).borrow_mut() = true);
+            pin.clear_interrupt(Interrupt::EdgeHigh);
+        }
+    }
+
+    if SELECT_BUTTON_PIN.is_none() {
+        critical_section::with(|cs| *SELECT_BUTTON_PIN = BUTTON_PIN_SELECT.borrow(cs).take());
+    }
+    if let Some(pin) = SELECT_BUTTON_PIN {
+        if pin.interrupt_status(Interrupt::EdgeLow) {
+            critical_section::with(|cs| *BUTTON_SELECT.borrow(cs).borrow_mut() = false);
+            pin.clear_interrupt(Interrupt::EdgeLow);
+        } else if pin.interrupt_status(Interrupt::EdgeHigh) {
+            critical_section::with(|cs| *BUTTON_SELECT.borrow(cs).borrow_mut() = true);
             pin.clear_interrupt(Interrupt::EdgeHigh);
         }
     }
 }
-

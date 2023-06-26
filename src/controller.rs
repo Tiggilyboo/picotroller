@@ -1,5 +1,5 @@
-use core::fmt::Debug;
 use crate::device::JoystickReport;
+use core::fmt::Debug;
 
 const ADC_MAX_VALUE_3V3: i32 = 4095;
 
@@ -43,8 +43,12 @@ impl Default for JoyState {
 pub struct Controller {
     pub joy_l: JoyState,
     pub joy_r: JoyState,
-    pub trigger_l: bool,
-    pub trigger_r: bool,
+    pub under_l: bool,
+    pub under_r: bool,
+    pub front_l: bool,
+    pub front_r: bool,
+    pub start: bool,
+    pub select: bool,
 }
 
 impl Default for Controller {
@@ -52,8 +56,12 @@ impl Default for Controller {
         Self {
             joy_l: JoyState::default(),
             joy_r: JoyState::default(),
-            trigger_l: false,
-            trigger_r: false,
+            under_l: false,
+            under_r: false,
+            front_l: false,
+            front_r: false,
+            start: false,
+            select: false,
         }
     }
 }
@@ -73,11 +81,23 @@ impl Controller {
         if self.joy_r.button {
             report.buttons |= buttons::BTN_THUMBR;
         }
-        if self.trigger_l {
+        if self.under_l {
+            report.buttons |= buttons::BTN_WEST;
+        }
+        if self.under_r {
+            report.buttons |= buttons::BTN_NORTH;
+        }
+        if self.front_l {
             report.buttons |= buttons::BTN_EAST;
         }
-        if self.trigger_r {
+        if self.front_r {
             report.buttons |= buttons::BTN_SOUTH;
+        }
+        if self.start {
+            report.buttons |= buttons::BTN_START;
+        }
+        if self.start {
+            report.buttons |= buttons::BTN_SELECT;
         }
     }
 }
@@ -87,4 +107,3 @@ fn scale_i8(value: u16) -> i8 {
     let scaled_value = (value as i32 * 255) / ADC_MAX_VALUE_3V3 - 128;
     scaled_value as i8
 }
-
